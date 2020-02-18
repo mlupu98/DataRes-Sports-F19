@@ -1,0 +1,259 @@
+---
+title: "DataRes NBA Fouls and Referees"
+author: "Kaushik Naresh"
+date: "12/18/2019"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+library("ggplot2")
+library("gridExtra")
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+#### Getting the data frames
+```{r}
+# data frame of match data, used for counting number of matches...
+data <- read.csv("DataFrame 2012-2018boxscore.csv") 
+
+# data frame of total fouls per team for each referee
+teamref <- read.csv("DataFrame Team By Referee.csv") 
+
+# data frame of fouls per game for each referee (3 refs per game)
+matchref <- read.csv("DataFrame Match By Referee.csv") 
+
+
+for(i in seq_len(nrow(teamref))) {
+  teamref$games_refd[i]  <- nrow(matchref[which(matchref$ref == teamref$ref[i]  & (matchref$teamAbbr == teamref$team[i] | matchref$opptAbbr == teamref$team[i])),])
+}
+
+all_data <- read.csv("../../Analysis/nba-enhanced-stats/2012-18_teamBoxScore.csv")
+```
+
+
+```{r all}
+#Finding point differentials between all games
+point_diff <- abs(all_data$teamPTS - all_data$opptPTS)
+
+#Barplot of the number of games that ended in a given point differential
+barplot(table(point_diff), col = c("light blue", "light blue", "orange", "orange", rep("white", 50)), ylab = "Number of Games", xlab = "Point Differential", main = "Number of Games Ending in Specific Point Differentials")
+```
+
+
+### This block creates a matrix of fouls against each team by each referee, essentially contains the same data as the data frame teamref
+```{r}
+#Retrieve unique referees and teams
+refnames <- unique(matchref$ref)
+teams <- unique(matchref$teamAbbr)
+
+#Create matrix to store answers
+ans_mat <- matrix(nrow = length(refnames), ncol = length(teams))
+refnames <- sort(refnames)
+teams <- sort(teams)
+colnames(ans_mat) <- teams
+rownames(ans_mat) <- refnames
+
+#Fill matrix with referee and team data
+for ( i in refnames){
+  for (j in teams){
+    ans_mat[i,j] <- sum(matchref$teamPF[matchref$ref == i & matchref$teamAbbr == j]) + sum(matchref$opptPF[matchref$ref == i & matchref$opptAbbr == j])
+  }
+}
+```
+
+
+### Total fouls be referee and by team
+```{r}
+#creating a named vector with total number of fouls against each team
+fouls_team <- numeric(ncol(ans_mat))
+
+# divide by three because 3 refs officiate each game and we want the number of fouls per ref
+for ( i in 1:ncol(ans_mat)) {
+  fouls_team[i] <- sum(ans_mat[,i])/3 
+}
+names(fouls_team) <- teams
+
+#creating a named vector with total number of fouls called by each referee
+fouls_ref <- numeric(nrow(ans_mat))
+for ( i in 1:nrow(ans_mat)) {
+  fouls_ref[i] <- sum(ans_mat[i,])
+} 
+names(fouls_ref) <- refnames
+```
+
+---
+
+### Graph of total fouls by team 
+```{r}
+barplot(sort(fouls_team), xlab = "Team", ylab = "Number of Fouls",  cex.names = 0.3, main= "Barplot of Fouls by Team")
+```
+
+As can be seen from this graph, all teams have had at least 8000 fouls called against them in the years 2012-2018. The three teams with the most fouls called are the Phoenix Suns, Toronto Raptors, and Philadelphia 76ers while the three teams with the lowest fouls are the Atlanta Hawks, San Antonio Spurs, and Charlotte Hornets. A problem here is that some teams may have played more games than others (due to playoffs) so we need to look at averages.
+
+### Graph of total fouls per referee 
+```{r}
+plot(sort(fouls_ref), ylab = "Number of Fouls", main = "Graph of Fouls per Referee", xlab = "Index", xaxt = "n")
+axis(1, at = seq(1, 87, by = 1) )
+```
+
+As can be seen from this graph, more than half of the referees of the years 2012-2018 have called more than 10000 fouls and around 10% have called more than 15000. Around a quarter have called less than 5000 fouls. The problem with this graph is that some referees might have officiated more games than the others. We therefore need to check the fouls called per game. It is difficult to label these points, so a more detailed analysis of the extremes will follow.
+
+### Calculating average fouls by team and average fouls by referee
+```{r}
+# create vector for number of matches per team & then average fouls done
+matches_team <- numeric(length(fouls_team))
+for (i in 1:length(matches_team)) {
+  matches_team[i] <- sum(data$teamAbbr == names(fouls_team)[i] | data$opptAbbr == names(fouls_team)[i])
+}
+avg_team <- fouls_team/matches_team
+
+#create vector for number of matches per referee & then average fouls called
+matches_ref <- numeric(length(fouls_ref))
+for (i in 1:length(matches_ref)) {
+  matches_ref[i] <- sum(matchref$ref == names(fouls_ref)[i])
+} 
+
+#Chose relevant matches as those that are more than 2 standard deviations away from the median
+relevant <- which(matches_ref > (median(matches_ref) - 2  * sd(matches_ref)))
+
+#Extract only relevant referee dara
+avg_ref <- fouls_ref[relevant]/matches_ref[relevant]
+
+#Plot averafe number of fouls for eeach referee
+plot(sort(avg_ref), ylab = "Number of Fouls", main = "Average Fouls per Referee per Game", xlab = "Referee Number", xaxt = "n", col = "blue")
+
+#Draw line for the average
+abline(h = mean(avg_ref), col = "orange")
+legend("topleft", "Average Fouls Called", lty = 1, col = "orange", inset = 0.05)
+axis(1, at = seq(1, 72, by = 1))
+```
+
+### Graph of average fouls by team 
+```{r}
+barplot(sort(avg_team), xlab = "Team", ylab = "Average Fouls",  cex.names = 0.3, main= "Barplot of Average Fouls by Team")
+```
+
+As can be seen, the average number of fouls per team for all teams is above 17, and much like the previous barplot, the top 3 (Phoenix Suns, Toronto Raptors, Philadelphia 76ers) and bottom 3 (Charlotte Hornets, San Antonio Spurs, Atlanta Hawks) teams are the same. However, the order of teams in the middle is slightly different in this plot. Still, there does not appear to be too much of a difference suggesting that over the 6 years, these teams have probably all played around the same number of games even after factoring playoffs.
+
+```{r}
+boxplot(avg_team, main = "Boxplot of Average Fouls Per Team", ylab = "Average Fouls")
+```
+
+This boxlpot shows that the average number of fouls called lies between 18 and 22 for all teams with the median at around 20. There are also no outliers in this plot.
+
+
+```{r}
+plot(sort(avg_ref), ylab = "Average Fouls Called", main = "Graph of Average Fouls per Referee", xlab = "Index")
+```
+
+From this graph we can see that most referees, around 80%, call between 38 and 42 fouls per game. This is about 19-21 fouls per team per game, suggesting that there are very few referees who call very many or very few fouls. It is difficult to label these points, so a detailed analysis of the extremes will follow.
+
+```{r}
+boxplot(avg_ref, main = "Boxplot of Average Fouls Called by Referees", ylab = "Average Fouls Called")
+```
+
+As can be seen, this boxplot confirms the previous analysis since all the outliers lie outside of the 38-42 range and the median is at around 40.
+
+---
+
+Now moving on to the referees that call most fouls and least fouls. (sorted by average)
+### Creating dataframes for the referees that call the least and most fouls
+```{r}
+ref_least <- names(sort(avg_ref)[1:3])
+ref_most <- names(sort(avg_ref, decreasing = TRUE)[1:3])
+df_leastref <- teamref[teamref$ref == ref_least[1] | teamref$ref == ref_least[2] | teamref$ref == ref_least[3],]
+df_mostref <- teamref[teamref$ref == ref_most[1] | teamref$ref == ref_most[2] | teamref$ref == ref_most[3],]
+df_mostref <- df_mostref[df_mostref$fouls != 0 & df_mostref$games_refd > 10,]
+df_leastref <- df_leastref[df_leastref$fouls != 0 & df_leastref$games_refd > 10,]
+```
+
+
+### Graphs for the top 3 most calls and lowest 3 calls
+```{r}
+ggplot(data = df_mostref, aes(x = ref, y = fouls[fouls > 10]/games_refd, color = team)) + geom_point() + labs(title = "Graph of Fouls Called by Top 3 Referees", x = "Referee", y = "Total Fouls")
+```
+
+These are the top 3 referees who call the highest average number of fouls. As can be seen, Scott Bolnick and Vladamir Voyard Tadal do not seem to call too many fouls for any certain team in comparison to other teams. However, Scott Foster seems to have called a lot more fouls against Dallas, Chicago, and Houston, while he called much lesser fouls against Miami, Detroit and Minnesota.
+
+Interestingly there are articles about Scott Foster where players have expressed a dislike towards his officiating. A quote from Paul Pierce (who played for Boston, LA Clippers, Brooklyn) is as follows: "I know that Scott is going to have a quick trigger with the technicals." Now as can be seen on the graph he has called a large number of fouls against each team, around 500+ for most, and his average number of fouls is 42 per game, which is definitely a pretty high number.
+
+
+```{r}
+ggplot(data = df_leastref, aes(x = ref, y = fouls/games_refd, color = team)) + geom_point() + labs(title = "Graph of Fouls Called by Bottom 3 Referees", x = "Referee", y = "Total Fouls")
+```
+
+As can be seen, in this graph there is a much wider range. Not counting the zeroes, Matt Myers has called much more fouls against Portland and Milwaukee than Cleveland and Minnesota. Randy Richardson has called way more fouls against Miami and Sacramento than
+Portland and New York. SirAllen Conner on the other hand has called a large number of fouls against Cleveland compared to the other teams.
+
+Matt Myers is from the Midwest and interstingly, he has called lesser fouls against multiple midwest teams (Cleveland, Minnesota, Chicago). One important fact to note is that all these referees are replacement referees and did not referee for many seasons. This could be related to why they call the lowest average number of fouls.
+
+---
+
+Now moving on to the team with the most fouls and least fouls. (sorted by average)
+#### creating the data frames for the team with most fouls (Phoenix) and the teams with least fouls (Charlotte)
+```{r}
+
+graph_arr <- c(30)
+for(j in seq_len(30)) {
+  max_team <- names(sort(avg_team, decreasing = TRUE))[j]
+  min_team <- names(sort(avg_team))[1]
+
+  #Extract values for the teams with most and least fouls called on them
+  df_teammax <- teamref[teamref$team == max_team,]
+  df_teammin <- teamref[teamref$team == min_team,]
+
+  #Extract the referee data for the team with most fouls called on them
+  for(i in seq_len(length(df_teammax$ref))) {
+      games_refd <- nrow(matchref[which(matchref$ref == df_teammax$ref[i]  & (matchref$teamAbbr == max_team | matchref$opptAbbr == max_team )),])
+      if(games_refd > 20) {
+         df_teammax$avg_fouls[i]  <- df_teammax$fouls[i] / games_refd
+         df_teammax$gen_vs_team[i] <- (avg_ref[df_teammax$ref[i]] / 2) - df_teammax$avg_fouls[i] 
+      }
+      else {
+         df_teammax$avg_fouls[i] <- NaN
+         df_teammax$gen_vs_team[i] <- NaN
+      }
+  }
+  
+  #Extract the referee data for the team with least fouls called on them
+  for(i in seq_len(length(df_teammin$ref))) {
+      games_refd <- nrow(matchref[which(matchref$ref == df_teammin$ref[i]  & (matchref$teamAbbr == min_team | matchref$opptAbbr == min_team )),])
+      if(games_refd > 20) {
+         df_teammin$avg_fouls[i]  <- df_teammin$fouls[i] / games_refd
+         df_teammin$gen_vs_team[i] <- (avg_ref[df_teammin$ref[i]] / 2) - df_teammin$avg_fouls[i] 
+      }
+      else {
+         df_teammin$avg_fouls[i] <- NaN
+         df_teammin$gen_vs_team[i] <- NaN
+      }
+  }
+  
+  df_teammax <- df_teammax[df_teammax$fouls != 0,]
+  df_teammin <- df_teammin[df_teammin$fouls != 0,]
+  
+  #Find the extremes - top 20% and bottom 20%
+  x <- quantile(df_teammax$avg_fouls, probs = c(0.2, 0.8), na.rm = TRUE)
+  y <- quantile(df_teammin$avg_fouls, probs = c(0.2, 0.8), na.rm = TRUE )
+  
+  #Extract the extreme value boundaries
+  df_teammax <- df_teammax[df_teammax$avg_fouls > x[2] | df_teammax$avg_fouls < x[1],]   
+  df_teammin <- df_teammin[df_teammin$avg_fouls > y[2] | df_teammin$avg_fouls < y[1],]
+  
+  #Add to graph_arr object to be able to graph multiple instances at once
+  graph_arr[j] <- list(ggplot(data=na.omit(df_teammax), aes(x = team, y = avg_fouls, color = ref)) + geom_point() + labs(title = max_team, x = "Team", y = "Average Fouls Called") + theme(plot.title = element_text(hjust = 0.5)))
+}
+```
+
+
+```{r}
+ggplot(data=na.omit(df_teammin), aes(x = team, y = avg_fouls, color = ref)) + geom_point() + labs(title = "Average Number of Fouls Called Against the Charlotte Hornets", x = "Team", y = "Average Number of Fouls")
+```
+
+# add technical fouls
+# national tv vs local
+# more stops for more commerical money + competitivity --> keeps more viewers
+# usually call fouls of ahead team --> look at article
+# remove last 2 minutes to make sure fouls were not intentional - done on college basketball
+# log transformation to bring values closer together
+# test for normality
+
